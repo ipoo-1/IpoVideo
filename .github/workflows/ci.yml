@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      USERPROFILE: /root
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Start middleware
+        working-directory: rebuild
+        run: docker compose -f docker-compose.ci.yml up -d
+
+      - name: Wait for middleware
+        working-directory: rebuild
+        run: |
+          sleep 20
+          curl -sf http://localhost:6333/collections
+          curl -sf http://localhost:9000/minio/health/live
+          redis-cli -h localhost ping
+
+      - name: Run tests
+        working-directory: rebuild/backend
+        run: mvn -q test
