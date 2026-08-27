@@ -11,5 +11,8 @@ target/
 data/
 uploads/
 
+# 本地练习目录
+java-practice/
+
 # 日志
 *.log
