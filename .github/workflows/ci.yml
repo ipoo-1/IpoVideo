@@ -19,17 +19,20 @@ jobs:
           java-version: '21'
 
       - name: Start middleware
-        working-directory: rebuild
         run: docker compose -f docker-compose.ci.yml up -d
 
       - name: Wait for middleware
-        working-directory: rebuild
         run: |
           sleep 20
           curl -sf http://localhost:6333/collections
           curl -sf http://localhost:9000/minio/health/live
           redis-cli -h localhost ping
+          for i in $(seq 1 30); do
+            (echo > /dev/tcp/localhost/9876) >/dev/null 2>&1 && break
+            sleep 2
+          done
+          (echo > /dev/tcp/localhost/9876) >/dev/null 2>&1
 
       - name: Run tests
-        working-directory: rebuild/backend
+        working-directory: backend
         run: mvn -q test
