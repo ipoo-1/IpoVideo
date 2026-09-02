@@ -7,8 +7,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      USERPROFILE: /root
     steps:
       - uses: actions/checkout@v4
 
