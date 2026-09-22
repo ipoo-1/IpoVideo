@@ -223,8 +223,8 @@ public class TaskWorker {
             VideoEvidenceHit hit = hits.get(index);
             sb.append("[E").append(index + 1).append("] ")
                     .append("[ ").append(hit.startMs()).append("ms - ")
-                    .append(hit.endMs()).append("ms] ")
-                    .append(hit.text()).append('\n');
+                    .append(hit.endMs()).append("ms][").append(hit.timestampSource())
+                    .append("] ").append(hit.text()).append('\n');
         }
         return sb.toString();
     }
