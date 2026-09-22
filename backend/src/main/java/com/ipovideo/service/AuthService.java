@@ -13,11 +13,13 @@ import com.ipovideo.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.Set;
 import java.util.UUID;
 
@@ -30,6 +32,13 @@ public class AuthService {
 
     private static final int MAX_LOGIN_FAILURES = 8;
     private static final long LOGIN_FAILURE_WINDOW_MINUTES = 10;
+    private static final Duration EVENT_TICKET_TTL = Duration.ofMinutes(1);
+    private static final DefaultRedisScript<String> GET_AND_DELETE_SCRIPT =
+            new DefaultRedisScript<>(
+                    "local value = redis.call('get', KEYS[1]); "
+                            + "if value then redis.call('del', KEYS[1]) end; "
+                            + "return value;",
+                    String.class);
 
     private final UserMapper userMapper;
     private final StringRedisTemplate redisTemplate;
@@ -148,6 +157,28 @@ public class AuthService {
             throw new BusinessException(401, "账号不存在");
         }
         return user;
+    }
+
+    public String createTaskEventTicket(Long userId, Long taskId) {
+        String ticket = UUID.randomUUID().toString().replace("-", "");
+        redisTemplate.opsForValue().set(
+                RedisKeys.taskEventTicketKey(taskId, ticket),
+                String.valueOf(userId),
+                EVENT_TICKET_TTL);
+        return ticket;
+    }
+
+    public Long consumeTaskEventTicket(Long taskId, String ticket) {
+        if (ticket == null || ticket.isBlank()) {
+            throw new BusinessException(401, "事件订阅凭证无效");
+        }
+        String userId = redisTemplate.execute(
+                GET_AND_DELETE_SCRIPT,
+                Collections.singletonList(RedisKeys.taskEventTicketKey(taskId, ticket)));
+        if (userId == null) {
+            throw new BusinessException(401, "事件订阅凭证无效或已过期");
+        }
+        return Long.valueOf(userId);
     }
 
     public UserView getUserViewById(Long userId) {

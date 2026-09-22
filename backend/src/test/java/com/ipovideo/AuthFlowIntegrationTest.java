@@ -2,6 +2,8 @@ package com.ipovideo;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ipovideo.common.BusinessException;
+import com.ipovideo.service.AuthService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -16,6 +18,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * 端到端接口测试：真实启动 Spring 容器，走完整的 HTTP -> Controller -> Service -> DB 链路。
@@ -30,6 +34,9 @@ class AuthFlowIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private AuthService authService;
 
     @Test
     void healthReturnsUp() throws Exception {
@@ -69,6 +76,38 @@ class AuthFlowIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.username").value("coder_01"));
+    }
+
+    @Test
+    void queryParameterTokenIsRejected() throws Exception {
+        String username = "query_token_" + (System.currentTimeMillis() % 1_000_000);
+        String auth = """
+                {"username":"%s","password":"secret123"}
+                """.formatted(username);
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(auth))
+                .andExpect(status().isOk());
+
+        String token = readJson(mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(auth))
+                .andExpect(status().isOk())
+                .andReturn()).path("data").path("token").asText();
+
+        mockMvc.perform(get("/api/me").param("token", token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    void taskEventTicketIsSingleUse() {
+        long userId = 42L;
+        long taskId = 1001L;
+        String ticket = authService.createTaskEventTicket(userId, taskId);
+        assertEquals(userId, authService.consumeTaskEventTicket(taskId, ticket));
+        assertThrows(BusinessException.class,
+                () -> authService.consumeTaskEventTicket(taskId, ticket));
     }
 
     @Test
@@ -197,5 +236,9 @@ class AuthFlowIntegrationTest {
                         .content(wrongBody))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.code").value(429));
+    }
+
+    private JsonNode readJson(MvcResult result) throws Exception {
+        return objectMapper.readTree(result.getResponse().getContentAsString());
     }
 }

@@ -49,9 +49,13 @@ public class VideoAnalysisConsumer implements RocketMQListener<AnalysisTaskMsg> 
         // 幂等：重复投递时任务已经结束，直接跳过，避免重复执行
 
         String status = task.getStatus();
-        log.info("video_analysis_received taskId={} status={}", msg.taskId(), task.getStatus());
+        log.info("video_analysis_received taskId={} status={}", msg.taskId(), status);
         if (TaskStatus.SUCCESS.name().equals(status) || TaskStatus.FAILED.name().equals(status)) {
+            return;
+        }
 
+        if (taskMapper.claimPendingTask(msg.taskId()) != 1) {
+            log.info("video_analysis_claim_skipped taskId={}", msg.taskId());
             return;
         }
 

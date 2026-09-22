@@ -75,6 +75,12 @@ class TaskFlowIntegrationTest {
                 .andReturn();
         long taskId = readJson(create).path("data").path("id").asLong();
 
+        mockMvc.perform(post("/api/tasks/" + taskId + "/ticket")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").isNotEmpty());
+
         String finalStatus = "PENDING";
         for (int i = 0; i < 50; i++) {
             Thread.sleep(200);
