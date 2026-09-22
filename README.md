@@ -93,12 +93,22 @@ cd backend
 .\mvnw.cmd spring-boot:run
 ```
 
-验证：
+启动后可访问：
+
+```text
+前端控制台：http://localhost:9090/
+Swagger UI：http://localhost:9090/swagger-ui.html
+健康检查：http://localhost:9090/health
+```
+
+健康检查返回：
 
 ```text
 GET http://localhost:9090/health
 -> {"code":0,"message":"success","data":"UP"}
 ```
+
+2 到 3 分钟演示录制步骤见 [演示脚本](docs/DEMO-SCRIPT.md)。
 
 完整启动说明见各阶段讲义（`docs/`）。
 
