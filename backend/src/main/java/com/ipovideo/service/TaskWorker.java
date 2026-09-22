@@ -14,22 +14,29 @@ import com.ipovideo.mapper.AnalysisTaskMapper;
 import com.ipovideo.mapper.MediaFileMapper;
 import io.minio.DownloadObjectArgs;
 import io.minio.MinioClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Consumer;
+import java.util.concurrent.ScheduledFuture;
 
 /**
- * 后台分析工人：按照真实的外部操作推进任务阶段，并在每个阶段完成后推送 SSE。
+ * 后台分析工人：按照真实的外部操作推进任务阶段，并通过租约和心跳防止重复执行。
  */
 @Component
 public class TaskWorker {
+
+    private static final Logger log = LoggerFactory.getLogger(TaskWorker.class);
 
     private final AnalysisTaskMapper taskMapper;
     private final TaskEventService taskEventService;
@@ -42,6 +49,7 @@ public class TaskWorker {
     private final VideoContextService videoContextService;
     private final String bucketName;
     private final VectorStoreService vectorStoreService;
+    private final TaskScheduler taskScheduler;
 
     public TaskWorker(AnalysisTaskMapper taskMapper,
                       TaskEventService taskEventService,
@@ -53,7 +61,8 @@ public class TaskWorker {
                       MinioClient minioClient,
                       VectorStoreService vectorStoreService,
                       VideoContextService videoContextService,
-                      @Value("${minio.bucketName:media}") String bucketName) {
+                      @Value("${minio.bucketName:media}") String bucketName,
+                      TaskScheduler taskScheduler) {
         this.taskMapper = taskMapper;
         this.taskEventService = taskEventService;
         this.agentLoopService = agentLoopService;
@@ -65,12 +74,17 @@ public class TaskWorker {
         this.vectorStoreService = vectorStoreService;
         this.videoContextService = videoContextService;
         this.bucketName = bucketName;
+        this.taskScheduler = taskScheduler;
     }
 
-    public void run(Long taskId) {
+    public void run(Long taskId, String workerId, Duration leaseDuration) {
+        ScheduledFuture<?> heartbeat = taskScheduler.scheduleAtFixedRate(
+                () -> renewLease(taskId, workerId, leaseDuration),
+                Instant.now().plusSeconds(10),
+                Duration.ofSeconds(10));
         try {
             AnalysisTask task = requireTask(taskId);
-            transition(taskId, "PREPARE", 5, "任务开始");
+            transition(taskId, workerId, leaseDuration, "PREPARE", 5, "任务开始");
 
             if (apiKey == null || apiKey.isBlank()) {
                 if (!demoModeEnabled) {
@@ -82,20 +96,20 @@ public class TaskWorker {
                         "title", "演示模式",
                         "conclusions", List.of(),
                         "suggestions", List.of("配置 SILICONFLOW_API_KEY 后重新提交任务")));
-                succeed(taskId, "DEMO", demoResult, 100);
+                succeed(taskId, workerId, "DEMO", demoResult, 100);
                 return;
             }
 
             Path workDir = Paths.get("target/ctx", String.valueOf(task.getId()));
             Files.createDirectories(workDir);
 
-            transition(taskId, "DOWNLOAD", 15, "正在下载视频");
+            transition(taskId, workerId, leaseDuration, "DOWNLOAD", 15, "正在下载视频");
             Path videoPath = downloadVideo(task, workDir);
 
-            transition(taskId, "BUILD_CONTEXT", 40, "正在转写语音并识别画面");
+            transition(taskId, workerId, leaseDuration, "BUILD_CONTEXT", 40, "正在转写语音并识别画面");
             VideoContext context = videoContextService.buildContext(videoPath, workDir);
 
-            transition(taskId, "RETRIEVE", 65, "正在检索视频证据");
+            transition(taskId, workerId, leaseDuration, "RETRIEVE", 65, "正在检索视频证据");
             vectorStoreService.upsertSegments(task.getMediaId(), context.segments());
             List<VideoEvidenceHit> hits = vectorStoreService.search(
                     task.getGoal(), context.segments(), 5);
@@ -103,45 +117,81 @@ public class TaskWorker {
                     ? buildEvidenceText(context)
                     : buildHitsText(hits);
 
-            transition(taskId, "AGENT", 85, "Agent 正在生成结论");
+            transition(taskId, workerId, leaseDuration, "AGENT", 85, "Agent 正在生成结论");
             AgentResult agentResult = agentLoopService.run(task.getGoal(), evidence);
 
-            transition(taskId, "VALIDATE", 95, "正在校验证据引用");
-            succeed(taskId, "SUCCESS", objectMapper.writeValueAsString(agentResult), 100);
+            transition(taskId, workerId, leaseDuration, "VALIDATE", 95, "正在校验证据引用");
+            succeed(taskId, workerId, "SUCCESS", objectMapper.writeValueAsString(agentResult), 100);
         } catch (Exception ex) {
-            fail(taskId, ex.getMessage());
+            fail(taskId, workerId, ex.getMessage());
+        } finally {
+            heartbeat.cancel(false);
         }
     }
 
-    private void transition(Long taskId, String stage, int progress, String message) {
-        update(taskId, task -> {
-            task.setStatus(TaskStatus.RUNNING.name());
-            task.setCurrentStage(stage);
-            task.setProgress(progress);
-        });
+    private void transition(Long taskId,
+                            String workerId,
+                            Duration leaseDuration,
+                            String stage,
+                            int progress,
+                            String message) {
+        int updated = taskMapper.updateProgress(
+                taskId,
+                workerId,
+                stage,
+                progress,
+                LocalDateTime.now().plus(leaseDuration));
+        if (updated != 1) {
+            throw new BusinessException(409, "任务租约已失效，停止重复写入");
+        }
         taskEventService.publish(taskId, new TaskEvent(stage, message, progress));
     }
 
-    private void succeed(Long taskId, String stage, String result, int progress) {
-        update(taskId, task -> {
-            task.setStatus(TaskStatus.SUCCESS.name());
-            task.setCurrentStage(stage);
-            task.setProgress(progress);
-            task.setResult(result);
-            task.setErrorMessage(null);
-        });
+    private void succeed(Long taskId, String workerId, String stage, String result, int progress) {
+        int updated = taskMapper.completeTask(
+                taskId,
+                workerId,
+                TaskStatus.SUCCESS.name(),
+                stage,
+                progress,
+                result,
+                null);
+        if (updated != 1) {
+            throw new BusinessException(409, "任务租约已失效，无法提交结果");
+        }
         taskEventService.publish(taskId, new TaskEvent(stage, "分析完成", progress));
         taskEventService.complete(taskId);
     }
 
-    private void fail(Long taskId, String message) {
+    private void fail(Long taskId, String workerId, String message) {
         String safeMessage = message == null || message.isBlank() ? "未知错误" : message;
-        update(taskId, task -> {
-            task.setStatus(TaskStatus.FAILED.name());
-            task.setErrorMessage(safeMessage);
-        });
-        taskEventService.publish(taskId, new TaskEvent("FAILED", "分析失败：" + safeMessage, 0));
-        taskEventService.complete(taskId);
+        int updated = taskMapper.completeTask(
+                taskId,
+                workerId,
+                TaskStatus.FAILED.name(),
+                "FAILED",
+                0,
+                null,
+                safeMessage);
+        if (updated == 1) {
+            taskEventService.publish(taskId, new TaskEvent("FAILED", "分析失败：" + safeMessage, 0));
+            taskEventService.complete(taskId);
+        } else {
+            log.warn("task_failure_ignored taskId={} workerId={} reason=lease-lost", taskId, workerId);
+        }
+    }
+
+    private void renewLease(Long taskId, String workerId, Duration leaseDuration) {
+        try {
+            int updated = taskMapper.renewLease(
+                    taskId, workerId, LocalDateTime.now().plus(leaseDuration));
+            if (updated != 1) {
+                log.warn("task_lease_renew_failed taskId={} workerId={}", taskId, workerId);
+            }
+        } catch (Exception ex) {
+            log.warn("task_lease_renew_error taskId={} workerId={} error={}",
+                    taskId, workerId, ex.getMessage());
+        }
     }
 
     private AnalysisTask requireTask(Long taskId) {
@@ -150,16 +200,6 @@ public class TaskWorker {
             throw new BusinessException(404, "任务不存在: " + taskId);
         }
         return task;
-    }
-
-    private void update(Long taskId, Consumer<AnalysisTask> change) {
-        AnalysisTask task = taskMapper.selectById(taskId);
-        if (task == null) {
-            return;
-        }
-        change.accept(task);
-        task.setUpdatedAt(LocalDateTime.now());
-        taskMapper.updateById(task);
     }
 
     private Path downloadVideo(AnalysisTask task, Path workDir) throws Exception {

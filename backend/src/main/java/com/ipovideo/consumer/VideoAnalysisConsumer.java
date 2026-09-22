@@ -11,6 +11,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
 /**
  * 视频分析消费者：收到消息后执行 TaskWorker。
  * 消息可能被重复投递，所以先查任务状态，已终态直接跳过（幂等消费）。
@@ -22,6 +26,7 @@ import org.springframework.stereotype.Component;
 public class VideoAnalysisConsumer implements RocketMQListener<AnalysisTaskMsg> {
 
     private static final Logger log = LoggerFactory.getLogger(VideoAnalysisConsumer.class);
+    private static final Duration LEASE_DURATION = Duration.ofMinutes(2);
 
     private final TaskWorker taskWorker;
     private final AnalysisTaskMapper taskMapper;
@@ -54,11 +59,15 @@ public class VideoAnalysisConsumer implements RocketMQListener<AnalysisTaskMsg> 
             return;
         }
 
-        if (taskMapper.claimPendingTask(msg.taskId()) != 1) {
+        String workerId = "worker-" + UUID.randomUUID().toString().replace("-", "");
+        int claimed = taskMapper.claimTask(
+                msg.taskId(), workerId, LocalDateTime.now().plus(LEASE_DURATION));
+        if (claimed != 1) {
             log.info("video_analysis_claim_skipped taskId={}", msg.taskId());
             return;
         }
 
-        taskWorker.run(msg.taskId());
+        log.info("video_analysis_claimed taskId={} workerId={}", msg.taskId(), workerId);
+        taskWorker.run(msg.taskId(), workerId, LEASE_DURATION);
     }
 }
