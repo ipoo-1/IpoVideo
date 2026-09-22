@@ -51,3 +51,9 @@ jobs:
       - name: Run tests
         working-directory: backend
         run: ./mvnw -q test
+
+      - name: Dump middleware logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.ci.yml ps
+          docker compose -f docker-compose.ci.yml logs --no-color --tail=200

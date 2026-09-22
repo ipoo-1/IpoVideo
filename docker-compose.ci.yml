@@ -28,7 +28,9 @@ services:
     image: apache/rocketmq:5.3.4
     depends_on:
       - rocketmq-namesrv
-    command: sh mqbroker -n rocketmq-namesrv:9876 autoCreateTopicEnable=true
+    volumes:
+      - ./rocketmq/broker-local.conf:/home/rocketmq/broker.conf:ro
+    command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/broker.conf
     ports:
       - "10911:10911"
       - "10909:10909"
