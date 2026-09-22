@@ -82,7 +82,8 @@ class TaskFlowIntegrationTest {
                 .andExpect(jsonPath("$.data").isNotEmpty());
 
         String finalStatus = "PENDING";
-        for (int i = 0; i < 50; i++) {
+        // RocketMQ 首次创建 Topic 和路由发现可能需要十几秒，CI 中给足等待窗口。
+        for (int i = 0; i < 150; i++) {
             Thread.sleep(200);
             MvcResult result = mockMvc.perform(get("/api/tasks/" + taskId)
                             .header("Authorization", "Bearer " + token))
