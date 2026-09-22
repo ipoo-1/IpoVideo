@@ -9,7 +9,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 受控 Agent 工作流：Planner -> Executor -> Critic，最多两轮。
@@ -69,20 +74,63 @@ public class AgentLoopService {
                     + "\nAgent 结果：" + toJson(result);
             CriticResult critic = deepSeekClient.structuredChat(CRITIC_SYSTEM, criticUser, CriticResult.class);
 
-            if (critic.passed()) {
+            List<String> citationIssues = validateEvidenceReferences(result, evidence);
+            if (critic.passed() && citationIssues.isEmpty()) {
                 log.info("agent_round={} passed=true", round);
                 return result;
             }
 
-            // 矛盾输出兜底：不通过但没有意见，补一个默认意见驱动下一轮
-            critiqueIssues = critic.issues() == null || critic.issues().isEmpty()
-                    ? List.of("Critic 未通过但未给出具体问题")
-                    : critic.issues();
+            List<String> issues = new ArrayList<>();
+            if (!critic.passed()) {
+                issues.addAll(critic.issues() == null || critic.issues().isEmpty()
+                        ? List.of("Critic 未通过但未给出具体问题")
+                        : critic.issues());
+            }
+            issues.addAll(citationIssues);
+            critiqueIssues = issues;
             log.warn("agent_round={} passed=false issues={}", round, critiqueIssues);
         }
 
         // 两轮都没通过：不伪造成功，任务由调用方标记失败
         throw new BusinessException(500, "分析质量未通过校验，请重新提交");
+    }
+
+    private List<String> validateEvidenceReferences(AgentResult result, String evidence) {
+        Set<String> available = extractEvidenceIds(evidence);
+        List<String> issues = new ArrayList<>();
+        if (result == null || result.conclusions() == null || result.conclusions().isEmpty()) {
+            issues.add("Agent 没有返回任何结论");
+            return issues;
+        }
+        if (available.isEmpty()) {
+            issues.add("输入证据中没有可引用的证据编号");
+            return issues;
+        }
+        for (String conclusion : result.conclusions()) {
+            Set<String> cited = extractEvidenceIds(conclusion);
+            if (cited.isEmpty()) {
+                issues.add("结论缺少证据引用：" + conclusion);
+                continue;
+            }
+            for (String id : cited) {
+                if (!available.contains(id)) {
+                    issues.add("结论引用了不存在的证据 [" + id + "]：" + conclusion);
+                }
+            }
+        }
+        return issues;
+    }
+
+    private Set<String> extractEvidenceIds(String text) {
+        Set<String> ids = new HashSet<>();
+        if (text == null) {
+            return ids;
+        }
+        Matcher matcher = Pattern.compile("\\[E(\\d+)]").matcher(text);
+        while (matcher.find()) {
+            ids.add("E" + matcher.group(1));
+        }
+        return ids;
     }
 
     private String toJson(Object value) {

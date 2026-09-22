@@ -4,6 +4,7 @@ import com.ipovideo.common.Result;
 import com.ipovideo.config.AuthInterceptor;
 import com.ipovideo.dto.CreateTaskRequest;
 import com.ipovideo.dto.TaskView;
+import com.ipovideo.service.AuthService;
 import com.ipovideo.service.TaskEventService;
 import com.ipovideo.service.TaskService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -24,10 +26,14 @@ public class TaskController {
 
     private final TaskService taskService;
     private final TaskEventService taskEventService;
+    private final AuthService authService;
 
-    public TaskController(TaskService taskService, TaskEventService taskEventService) {
+    public TaskController(TaskService taskService,
+                          TaskEventService taskEventService,
+                          AuthService authService) {
         this.taskService = taskService;
         this.taskEventService = taskEventService;
+        this.authService = authService;
     }
 
     @PostMapping
@@ -43,10 +49,17 @@ public class TaskController {
         return Result.ok(taskService.getForUser(id, userId));
     }
 
-    @GetMapping("/{id}/events")
-    public SseEmitter events(@PathVariable Long id, HttpServletRequest http) {
+    @PostMapping("/{id}/ticket")
+    public Result<String> eventTicket(@PathVariable Long id, HttpServletRequest http) {
         Long userId = (Long) http.getAttribute(AuthInterceptor.USER_ID_ATTRIBUTE);
         taskService.checkAccess(id, userId);
+        return Result.ok(authService.createTaskEventTicket(userId, id));
+    }
+
+    @GetMapping("/{id}/events")
+    public SseEmitter events(@PathVariable Long id,
+                             @RequestParam("ticket") String ticket) {
+        authService.consumeTaskEventTicket(id, ticket);
         return taskEventService.register(id);
     }
 

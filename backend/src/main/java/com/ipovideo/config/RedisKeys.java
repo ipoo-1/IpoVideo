@@ -31,4 +31,8 @@ public final class RedisKeys {
     public static String uploadPartsKey(String uploadId) {
         return "upload:parts:" + uploadId;
     }
+
+    public static String taskEventTicketKey(Long taskId, String ticket) {
+        return "auth:task-event-ticket:" + taskId + ":" + ticket;
+    }
 }

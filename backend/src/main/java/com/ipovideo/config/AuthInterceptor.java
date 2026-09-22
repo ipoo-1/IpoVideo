@@ -36,7 +36,6 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (header != null && !header.isBlank()) {
             return header;
         }
-        // EventSource 无法自定义请求头，允许通过查询参数 token=xxx 携带登录凭证
-        return request.getParameter("token");
+        return null;
     }
 }

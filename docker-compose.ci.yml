@@ -5,7 +5,7 @@ services:
       - "6379:6379"
 
   minio:
-    image: minio/minio
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -28,7 +28,9 @@ services:
     image: apache/rocketmq:5.3.4
     depends_on:
       - rocketmq-namesrv
-    command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/conf/broker.conf
+    volumes:
+      - ./rocketmq/broker-local.conf:/home/rocketmq/broker.conf:ro
+    command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/broker.conf
     ports:
       - "10911:10911"
       - "10909:10909"
