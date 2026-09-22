@@ -63,6 +63,7 @@ public class VectorStoreService {
                 payload.put("endMs", segment.endMs());
                 payload.put("asrText", segment.asrText());
                 payload.put("ocrText", segment.ocrText());
+                payload.put("timestampSource", segment.timestampSource());
 
                 Map<String, Object> point = new LinkedHashMap<>();
                 point.put("id", mediaId * 100_000L + i);
@@ -103,7 +104,8 @@ public class VectorStoreService {
                         payload.path("startMs").asLong(),
                         payload.path("endMs").asLong(),
                         joinText(payload),
-                        point.path("score").asDouble()
+                        point.path("score").asDouble(),
+                        payload.path("timestampSource").asText("UNKNOWN")
                 ));
             }
             return hits;
@@ -128,7 +130,7 @@ public class VectorStoreService {
                         }
                     }
                     return new VideoEvidenceHit(
-                            segment.startMs(), segment.endMs(), text, score);
+                            segment.startMs(), segment.endMs(), text, score, segment.timestampSource());
                 })
                 .filter(hit -> hit.score() > 0)
                 .sorted(Comparator.comparingDouble(VideoEvidenceHit::score).reversed())
