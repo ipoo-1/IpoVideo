@@ -11,10 +11,10 @@ import com.ipovideo.entity.AnalysisTask;
 import com.ipovideo.entity.MediaFile;
 import com.ipovideo.mapper.AnalysisTaskMapper;
 import com.ipovideo.mapper.MediaFileMapper;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.Duration;
@@ -30,21 +30,22 @@ public class TaskService {
     private final AnalysisTaskMapper taskMapper;
     private final MediaFileMapper mediaFileMapper;
     private final StringRedisTemplate redisTemplate;
-    private final RocketMQTemplate rocketMQTemplate;
+    private final TaskOutboxService taskOutboxService;
     private final String analysisTopic;
 
     public TaskService(AnalysisTaskMapper taskMapper,
                        MediaFileMapper mediaFileMapper,
                        StringRedisTemplate redisTemplate,
-                       RocketMQTemplate rocketMQTemplate,
+                       TaskOutboxService taskOutboxService,
                        @Value("${rocketmq.topic.video-analysis:video-analysis-topic}") String analysisTopic) {
         this.taskMapper = taskMapper;
         this.mediaFileMapper = mediaFileMapper;
         this.redisTemplate = redisTemplate;
-        this.rocketMQTemplate = rocketMQTemplate;
+        this.taskOutboxService = taskOutboxService;
         this.analysisTopic = analysisTopic;
     }
 
+    @Transactional
     public TaskView create(Long userId, CreateTaskRequest request) {
         MediaFile media = mediaFileMapper.selectById(request.mediaId());
         if (media == null) {
@@ -81,18 +82,10 @@ public class TaskService {
             task.setUpdatedAt(LocalDateTime.now());
             taskMapper.insert(task);
 
-            // 提交即返回：消息投递到 RocketMQ，由消费者异步执行
-            try {
-                rocketMQTemplate.convertAndSend(analysisTopic,
-                        new AnalysisTaskMsg(task.getId(), request.mediaId(), userId, task.getGoal()));
-            } catch (RuntimeException ex) {
-                // 投递失败不能让任务静默丢失：标记失败，前端能查到原因
-                task.setStatus(TaskStatus.FAILED.name());
-                task.setErrorMessage("任务投递失败：" + ex.getMessage());
-                task.setUpdatedAt(LocalDateTime.now());
-                taskMapper.updateById(task);
-                throw new BusinessException(500, "任务投递失败，请稍后重试");
-            }
+            // 任务与 Outbox 事件在同一事务中落库，后台 Dispatcher 负责可靠投递。
+            taskOutboxService.enqueueTask(
+                    new AnalysisTaskMsg(task.getId(), request.mediaId(), userId, task.getGoal()),
+                    analysisTopic);
             return TaskView.from(task);
         } finally {
             // 只有锁还是自己的才删除，避免误删别人重新拿到的锁
