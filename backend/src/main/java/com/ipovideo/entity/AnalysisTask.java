@@ -36,6 +36,12 @@ public class AnalysisTask {
 
     private LocalDateTime updatedAt;
 
+    private String workerId;
+
+    private LocalDateTime leaseUntil;
+
+    private Integer attemptCount;
+
     public Long getId() {
         return id;
     }
@@ -122,5 +128,29 @@ public class AnalysisTask {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getWorkerId() {
+        return workerId;
+    }
+
+    public void setWorkerId(String workerId) {
+        this.workerId = workerId;
+    }
+
+    public LocalDateTime getLeaseUntil() {
+        return leaseUntil;
+    }
+
+    public void setLeaseUntil(LocalDateTime leaseUntil) {
+        this.leaseUntil = leaseUntil;
+    }
+
+    public Integer getAttemptCount() {
+        return attemptCount;
+    }
+
+    public void setAttemptCount(Integer attemptCount) {
+        this.attemptCount = attemptCount;
     }
 }
