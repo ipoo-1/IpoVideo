@@ -14,8 +14,18 @@
 
 ## 项目演示
 
-- [完整演示视频](docs/demo/IpoVideo-demo.mp4)
-- [2-3 分钟演示脚本](docs/DEMO-SCRIPT.md)
+[![IpoVideo 演示预览](docs/demo/IpoVideo-demo-preview.gif)](docs/demo/IpoVideo-demo.mp4)
+
+> GitHub README 不支持直接播放仓库中的 MP4，因此使用 GIF 自动播放预览；点击预览图可打开完整演示视频。
+
+## 界面预览
+
+以下为演示录屏截帧，完整操作以视频为准。
+
+| 录屏截帧 1 | 录屏截帧 2 | 录屏截帧 3 |
+| :---: | :---: | :---: |
+| ![录屏截帧 1](docs/demo/screenshot-01.png) | ![录屏截帧 2](docs/demo/screenshot-02.png) | ![录屏截帧 3](docs/demo/screenshot-03.png) |
+| ![录屏截帧 4](docs/demo/screenshot-04.png) | ![录屏截帧 5](docs/demo/screenshot-05.png) | ![录屏截帧 6](docs/demo/screenshot-06.png) |
 
 ## 系统架构
 
