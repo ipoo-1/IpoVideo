@@ -17,7 +17,7 @@ services:
       - "6379:6379"
 
   minio:
-    image: minio/minio
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -35,6 +35,23 @@ services:
     volumes:
       - qdrant-data:/qdrant/storage
 
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.3.4
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.4
+    depends_on:
+      - rocketmq-namesrv
+    volumes:
+      - ./rocketmq/broker-local.conf:/home/rocketmq/broker.conf:ro
+    command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/broker.conf
+    ports:
+      - "10911:10911"
+      - "10909:10909"
+
   backend:
     build: ./backend
     depends_on:
@@ -42,6 +59,8 @@ services:
       - redis
       - minio
       - qdrant
+      - rocketmq-namesrv
+      - rocketmq-broker
     environment:
       DB_URL: jdbc:mysql://mysql:3306/dovideo?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
       DB_USERNAME: dovideo
@@ -51,6 +70,7 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       QDRANT_URL: http://qdrant:6333
+      ROCKETMQ_NAME_SERVER: rocketmq-namesrv:9876
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
     ports:
       - "9090:9090"
