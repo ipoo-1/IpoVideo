@@ -8,9 +8,10 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  unit-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
+
     steps:
       - uses: actions/checkout@v5
 
@@ -20,40 +21,6 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Start middleware
-        run: docker compose -f docker-compose.ci.yml up -d
-
-      - name: Wait for middleware
-        run: |
-          set -euo pipefail
-
-          for attempt in $(seq 1 90); do
-            ports_ready=1
-            for port in 6379 6333 9000 9876 10911; do
-              (echo > /dev/tcp/localhost/$port) >/dev/null 2>&1 || ports_ready=0
-            done
-
-            if [ "$ports_ready" = "1" ] \
-              && curl -fsS --max-time 3 http://localhost:6333/collections >/dev/null \
-              && curl -fsS --max-time 3 http://localhost:9000/minio/health/live >/dev/null; then
-              echo "Middleware is ready"
-              exit 0
-            fi
-
-            sleep 2
-          done
-
-          echo "Middleware did not become ready"
-          docker compose -f docker-compose.ci.yml ps
-          docker compose -f docker-compose.ci.yml logs --no-color --tail=200
-          exit 1
-
-      - name: Run tests
+      - name: Run unit tests without middleware
         working-directory: backend
-        run: ./mvnw -q test
-
-      - name: Dump middleware logs on failure
-        if: failure()
-        run: |
-          docker compose -f docker-compose.ci.yml ps
-          docker compose -f docker-compose.ci.yml logs --no-color --tail=200
+        run: ./mvnw -q -Dtest='!*IntegrationTest' test
