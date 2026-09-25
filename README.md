@@ -12,12 +12,18 @@
 ![Qdrant](https://img.shields.io/badge/Qdrant-Vector-563D7C)
 ![DeepSeek](https://img.shields.io/badge/DeepSeek-Agent-20232A)
 
+## 项目演示
+
+- [完整演示视频](docs/demo/IpoVideo-demo.mp4)
+- [2-3 分钟演示脚本](docs/DEMO-SCRIPT.md)
+
 ## 系统架构
 
 ```mermaid
 sequenceDiagram
     participant User as 用户
     participant API as Spring Boot API
+    participant Outbox as Outbox Dispatcher
     participant MQ as RocketMQ
     participant Worker as 消费者
     participant Context as VideoContext
@@ -26,8 +32,11 @@ sequenceDiagram
     participant DB as MySQL + Redis
 
     User->>API: 上传视频 + 分析目标
-    API->>MQ: 投递分析任务（立即返回）
+    API->>DB: 任务与 Outbox 同事务落库
+    Outbox->>MQ: 可靠投递分析任务
+    API-->>User: 立即返回任务 ID
     MQ->>Worker: 消费消息（幂等）
+    Worker->>DB: 原子抢占任务 / 续租 / 心跳
     Worker->>Context: FFmpeg 抽音频/关键帧 + ASR/OCR
     Context->>Vector: 片段向量化入库
     Vector->>Agent: 语义召回 TopK 证据
@@ -39,15 +48,22 @@ sequenceDiagram
 
 - **异步任务**：RocketMQ 削峰解耦，任务状态机 PENDING/RUNNING/SUCCESS/FAILED
   全量落库，消费者提供终态重复消费保护，任务提交使用 Redis 锁防重。
+- **可靠投递**：Transactional Outbox 保证任务记录和待投递事件同事务落库，
+  Dispatcher 负责重试和幂等发布，避免 MQ 短暂不可用造成任务丢失。
+- **Worker 租约**：Worker 原子抢占任务并定期续约，任务超时后可恢复重投，
+  避免多实例重复执行和进程异常退出导致的任务永久卡住。
 - **多模态上下文**：FFmpeg 抽取音频与关键帧，ASR 转写语音、Tesseract OCR
-  识别画面文字，合并为带时间轴的 VideoContext。
+  识别画面文字，按时间窗口合并为 VideoContext；OCR 绑定采样帧时间，
+  ASR 标记窗口内估算，避免把粗粒度时间伪装成精确时间。
 - **受控 Agent**：Planner-Executor-Critic 工作流，DeepSeek 输出结构化 JSON，
   结论必须引用真实证据编号，Critic 和 Citation Validator 共同校验，最多两轮。
 - **向量检索**：BGE-M3 Embedding + Qdrant 语义召回 TopK 证据，
   Qdrant/Embedding 不可用时自动降级为关键词匹配。
 - **对象存储**：MinIO 存储视频，分片上传 + 断点续传，数据库仅存元数据。
+- **接口与可观测性**：Swagger UI 提供 OpenAPI 文档和联调入口，任务进度通过
+  一次性 SSE Ticket 推送，避免长期凭证暴露在查询参数中。
 - **基础工程**：Flyway 迁移、统一响应、全局异常、Redis 会话与登录限流、
-  一次性 SSE 订阅凭证、Docker/CI 配置和 23 个自动化测试方法。
+  Docker/CI 配置和 31 个自动化测试方法。
 
 ## 技术栈
 
@@ -60,6 +76,7 @@ sequenceDiagram
 | 检索 | Qdrant、BGE-M3 Embedding |
 | AI | LangChain4j、DeepSeek（SiliconFlow） |
 | 媒体 | FFmpeg、Tesseract（chi_sim+eng） |
+| 接口 | Springdoc OpenAPI、Swagger UI、极简静态前端 |
 | 工程化 | Docker、docker-compose、GitHub Actions |
 
 ## 快速开始
@@ -93,6 +110,14 @@ cd backend
 .\mvnw.cmd spring-boot:run
 ```
 
+本地开发可以执行：
+
+```powershell
+.\scripts\run-local.ps1
+```
+
+该脚本默认使用 Docker Compose 启动中间件；Docker 不可用时，也可以按下文各阶段文档使用本机 MySQL、Redis、RocketMQ、MinIO 和 Qdrant。
+
 启动后可访问：
 
 ```text
@@ -108,7 +133,7 @@ GET http://localhost:9090/health
 -> {"code":0,"message":"success","data":"UP"}
 ```
 
-2 到 3 分钟演示录制步骤见 [演示脚本](docs/DEMO-SCRIPT.md)。
+演示视频见 [完整演示](docs/demo/IpoVideo-demo.mp4)，录制步骤见 [演示脚本](docs/DEMO-SCRIPT.md)。
 
 完整启动说明见各阶段讲义（`docs/`）。
 
@@ -119,8 +144,9 @@ cd backend
 .\mvnw.cmd test
 ```
 
-当前 23 个自动化测试方法覆盖认证、限流、任务链路、分片上传、VideoContext、
-向量检索降级和证据引用校验等核心路径。测试结果以最新 CI 和本地执行结果为准。
+当前 31 个自动化测试方法覆盖认证、限流、任务链路、Outbox、Worker Lease、
+恢复调度、分片上传、VideoContext、向量检索降级和证据引用校验等核心路径。
+测试结果以最新 CI 和本地执行结果为准。
 
 ## 目录结构
 
@@ -136,8 +162,9 @@ rocketmq/       RocketMQ 本地配置
 
 - DeepSeek 生成、ASR、Embedding、Qdrant 检索均为真实调用并已实测。
 - 时间戳为片段级定位，句子级定位是后续迭代方向。
-- Docker/CI 配置已修复 MinIO 镜像和 RocketMQ 启动方式，需以最新 CI 结果为准。
-- 本项目为后端工程，未包含前端界面。
+- GitHub Actions 已覆盖 Redis、RocketMQ、MinIO、Qdrant 和完整测试链路。
+- 已提供极简前端控制台和 Swagger UI，定位为演示与联调，不是完整商业产品。
+- Docker 本地受镜像网络影响时，可使用本机原生中间件启动项目。
 
 ## 文档
 
