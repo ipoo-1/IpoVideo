@@ -1,5 +1,9 @@
 # IpoVideo
 
+[![IpoVideo 演示预览](docs/demo/IpoVideo-demo-preview.gif)](docs/demo/IpoVideo-demo.mp4)
+
+> GitHub README 不支持直接播放仓库中的 MP4，因此使用 GIF 自动播放预览；点击预览图可打开完整演示视频。
+
 面向长视频内容理解的 AI Agent 平台：上传课程、会议或操作录屏后，系统异步完成
 语音与画面理解，由 Agent 生成**可检索、可追溯、可追问**的结构化结论。
 
@@ -11,21 +15,6 @@
 ![MinIO](https://img.shields.io/badge/MinIO-S3-42B883)
 ![Qdrant](https://img.shields.io/badge/Qdrant-Vector-563D7C)
 ![DeepSeek](https://img.shields.io/badge/DeepSeek-Agent-20232A)
-
-## 项目演示
-
-[![IpoVideo 演示预览](docs/demo/IpoVideo-demo-preview.gif)](docs/demo/IpoVideo-demo.mp4)
-
-> GitHub README 不支持直接播放仓库中的 MP4，因此使用 GIF 自动播放预览；点击预览图可打开完整演示视频。
-
-## 界面预览
-
-以下为演示录屏截帧，完整操作以视频为准。
-
-| 录屏截帧 1 | 录屏截帧 2 | 录屏截帧 3 |
-| :---: | :---: | :---: |
-| ![录屏截帧 1](docs/demo/screenshot-01.png) | ![录屏截帧 2](docs/demo/screenshot-02.png) | ![录屏截帧 3](docs/demo/screenshot-03.png) |
-| ![录屏截帧 4](docs/demo/screenshot-04.png) | ![录屏截帧 5](docs/demo/screenshot-05.png) | ![录屏截帧 6](docs/demo/screenshot-06.png) |
 
 ## 系统架构
 
@@ -75,6 +64,10 @@ sequenceDiagram
 - **基础工程**：Flyway 迁移、统一响应、全局异常、Redis 会话与登录限流、
   Docker/CI 配置和 31 个自动化测试方法。
 
+### 异步任务处理
+
+![任务处理界面](docs/demo/02-task-processing.png)
+
 ## 技术栈
 
 | 层次 | 技术 |
@@ -89,6 +82,10 @@ sequenceDiagram
 | 接口 | Springdoc OpenAPI、Swagger UI、极简静态前端 |
 | 工程化 | Docker、docker-compose、GitHub Actions |
 
+## 接口文档
+
+![Swagger UI](docs/demo/03-swagger.png)
+
 ## 快速开始
 
 ### 环境要求
@@ -96,6 +93,10 @@ sequenceDiagram
 - JDK 21、Maven（或使用 `mvnw`）
 - MySQL 8、Redis、RocketMQ、MinIO、Qdrant
 - FFmpeg、Tesseract（含 `chi_sim` 语言包）
+
+### 登录与认证
+
+![登录界面](docs/demo/01-login.png)
 
 ### 配置
 
@@ -143,7 +144,6 @@ GET http://localhost:9090/health
 -> {"code":0,"message":"success","data":"UP"}
 ```
 
-演示视频见 [完整演示](docs/demo/IpoVideo-demo.mp4)，录制步骤见 [演示脚本](docs/DEMO-SCRIPT.md)。
 
 完整启动说明见各阶段讲义（`docs/`）。
 
