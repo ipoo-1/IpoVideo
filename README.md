@@ -162,7 +162,7 @@ rocketmq/       RocketMQ 本地配置
 
 - DeepSeek 生成、ASR、Embedding、Qdrant 检索均为真实调用并已实测。
 - 时间戳为片段级定位，句子级定位是后续迭代方向。
-- GitHub Actions 默认运行不依赖中间件的单元测试和契约测试；Redis、RocketMQ、MinIO、Qdrant 的完整集成链路通过本机原生服务单独验证。
+- GitHub Actions 默认运行 AgentLoop、Outbox、Worker Lease 和 VideoContext 的 7 个无中间件单元测试；完整集成链路通过本机原生服务验证。
 - 已提供极简前端控制台和 Swagger UI，定位为演示与联调，不是完整商业产品。
 - Docker 本地受镜像网络影响时，可使用本机原生中间件启动项目。
 
